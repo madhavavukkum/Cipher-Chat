@@ -1,5 +1,5 @@
 import express, { json, urlencoded } from 'express';
-import { connect, connection } from 'mongoose';
+import mongoose from 'mongoose'; // Import default export
 import cors from 'cors';
 import { createServer } from 'http';
 import { initializeSocket } from './utils/socket.js';
@@ -10,6 +10,8 @@ import friendsRoutes from './routes/friends.js';
 import messagesRoutes from './routes/messages.js';
 
 dotenv.config();
+
+const { connect, connection } = mongoose; // Destructure from default export
 
 const app = express();
 const server = createServer(app);
