@@ -3,7 +3,8 @@ import { connect, connection } from 'mongoose';
 import cors from 'cors';
 import { createServer } from 'http';
 import { initializeSocket } from './utils/socket';
-require('dotenv').config();
+import dotenv from 'dotenv';
+dotenv.config();
 
 const app = express();
 const server = createServer(app);
