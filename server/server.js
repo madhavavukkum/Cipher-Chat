@@ -1,12 +1,12 @@
-const express = require('express');
-const mongoose = require('mongoose');
-const cors = require('cors');
-const http = require('http');
-const { initializeSocket } = require('./utils/socket');
+import express, { json, urlencoded } from 'express';
+import { connect, connection } from 'mongoose';
+import cors from 'cors';
+import { createServer } from 'http';
+import { initializeSocket } from './utils/socket';
 require('dotenv').config();
 
 const app = express();
-const server = http.createServer(app);
+const server = createServer(app);
 const PORT = process.env.PORT || 5000;
 
 // Initialize Socket.IO
@@ -17,8 +17,8 @@ app.use(cors({
   origin: "*",
   credentials: true
 }));
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(json({ limit: '10mb' }));
+app.use(urlencoded({ extended: true, limit: '10mb' }));
 
 // Request logging middleware
 app.use((req, res, next) => {
@@ -27,10 +27,10 @@ app.use((req, res, next) => {
 });
 
 // Connect to MongoDB
-mongoose.connect(process.env.MONGODB_URI)
+connect(process.env.MONGODB_URI)
   .then(() => {
     console.log('✓ MongoDB connected successfully');
-    console.log(`✓ Database: ${mongoose.connection.name}`);
+    console.log(`✓ Database: ${connection.name}`);
   })
   .catch(err => {
     console.error('✗ MongoDB connection error:', err.message);
@@ -49,7 +49,7 @@ app.get('/api/health', (req, res) => {
     status: 'OK',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
-    mongodb: mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected'
+    mongodb: connection.readyState === 1 ? 'Connected' : 'Disconnected'
   });
 });
 
@@ -89,7 +89,7 @@ app.use((err, req, res, next) => {
 // Graceful shutdown
 process.on('SIGTERM', async () => {
   console.log('SIGTERM received, shutting down gracefully');
-  await mongoose.connection.close();
+  await connection.close();
   server.close(() => {
     console.log('Process terminated');
     process.exit(0);
@@ -98,7 +98,7 @@ process.on('SIGTERM', async () => {
 
 process.on('SIGINT', async () => {
   console.log('SIGINT received, shutting down gracefully');
-  await mongoose.connection.close();
+  await connection.close();
   server.close(() => {
     console.log('Process terminated');
     process.exit(0);
