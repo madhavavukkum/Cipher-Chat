@@ -1,162 +1,167 @@
-import express from 'express';
-import Message from '../models/Message.js';
+import { Server } from 'socket.io';
+import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
-import authMiddleware from '../middleware/auth.js';
-import crypto from 'crypto';
+import Message from '../models/Message.js';
+import { encrypt, decrypt } from './encryption.js';
 
-const router = express.Router();
+const connectedUsers = new Map();
 
-// AES Encryption/Decryption functions
-const algorithm = 'aes-256-cbc';
-const secretKey = crypto.createHash('sha256').update(process.env.AES_SECRET).digest();
-
-function encrypt(text) {
-  const iv = crypto.randomBytes(16);
-  const cipher = crypto.createCipheriv(algorithm, secretKey, iv);
-  let encrypted = cipher.update(text, 'utf8', 'hex');
-  encrypted += cipher.final('hex');
-  return {
-    encryptedData: encrypted,
-    iv: iv.toString('hex'),
-  };
-}
-
-function decrypt(encryptedData, ivHex) {
-  const iv = Buffer.from(ivHex, 'hex');
-  const decipher = crypto.createDecipheriv(algorithm, secretKey, iv);
-  let decrypted = decipher.update(encryptedData, 'hex', 'utf8');
-  decrypted += decipher.final('utf8');
-  return decrypted;
-}
-
-// Get Messages
-router.get('/:userId', authMiddleware, async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 30;
-    const skip = (page - 1) * limit;
-
-    if (!userId) {
-      return res.status(400).json({ message: 'User ID is required' });
+function initializeSocket(server) {
+  const io = new Server(server, {
+    cors: {
+      origin: "*",
+      methods: ["GET", "POST"],
+      credentials: true
     }
+  });
 
-    const targetUser = await User.findById(userId);
-    if (!targetUser) {
-      return res.status(404).json({ message: 'User not found' });
+  io.use(async (socket, next) => {
+    try {
+      const token = socket.handshake.auth.token;
+      if (!token) {
+        return next(new Error('Authentication error'));
+      }
+
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      const user = await User.findById(decoded.userId);
+      if (!user) {
+        return next(new Error('User not found'));
+      }
+
+      socket.userId = user._id.toString();
+      socket.user = user;
+      next();
+    } catch (error) {
+      next(new Error('Authentication error'));
     }
+  });
 
-    const messages = await Message.find({
-      $or: [
-        { sender: req.user._id, receiver: userId },
-        { sender: userId, receiver: req.user._id }
-      ],
-      isDeleted: false
-    })
-      .populate('sender receiver', 'username email isGuest')
-      .sort({ timestamp: -1 })
-      .skip(skip)
-      .limit(limit);
+  io.on('connection', async (socket) => {
+    console.log(`User connected: ${socket.user.username} (${socket.userId})`);
 
-    const decryptedMessages = messages.map(msg => {
+    connectedUsers.set(socket.userId, {
+      socketId: socket.id,
+      username: socket.user.username,
+      lastSeen: new Date()
+    });
+
+    socket.join(socket.userId);
+
+    await User.findByIdAndUpdate(socket.userId, {
+      isOnline: true,
+      lastSeen: new Date()
+    });
+
+    const userWithFriends = await User.findById(socket.userId).populate('friends', '_id');
+    userWithFriends.friends.forEach(friend => {
+      socket.to(friend._id.toString()).emit('userOnline', {
+        userId: socket.userId,
+        username: socket.user.username
+      });
+    });
+
+    socket.on('sendMessage', async (data) => {
       try {
-        return {
-          _id: msg._id,
-          sender: msg.sender,
-          receiver: msg.receiver,
-          message: decrypt(msg.encryptedMessage, msg.iv),
-          timestamp: msg.timestamp,
-          isRead: msg.isRead,
-          messageType: msg.messageType,
-          editedAt: msg.editedAt
+        const { receiverId, message } = data;
+
+        if (!receiverId || !message || typeof message !== 'string' || !message.trim()) {
+          return socket.emit('messageError', { error: 'Invalid message data' });
+        }
+
+        const receiver = await User.findById(receiverId);
+        if (!receiver) {
+          return socket.emit('messageError', { error: 'Recipient not found' });
+        }
+
+        if (!process.env.AES_SECRET) {
+          throw new Error('AES_SECRET environment variable is not set');
+        }
+        const encrypted = encrypt(message.trim(), process.env.AES_SECRET);
+
+        const newMessage = new Message({
+          sender: socket.userId,
+          receiver: receiverId,
+          encryptedMessage: encrypted.encryptedData,
+          iv: encrypted.iv
+        });
+
+        await newMessage.save();
+        await newMessage.populate('sender receiver', 'username email isGuest');
+
+        const messageData = {
+          _id: newMessage._id,
+          sender: newMessage.sender,
+          receiver: newMessage.receiver,
+          message: message.trim(),
+          timestamp: newMessage.timestamp,
+          isRead: false,
+          messageType: newMessage.messageType
         };
-      } catch (decryptError) {
-        console.error('Decryption error:', decryptError);
-        return {
-          _id: msg._id,
-          sender: msg.sender,
-          receiver: msg.receiver,
-          message: '[Message could not be decrypted]',
-          timestamp: msg.timestamp,
-          isRead: msg.isRead,
-          messageType: msg.messageType,
-          editedAt: msg.editedAt
-        };
-      }
-    }).reverse();
 
-    await Message.updateMany(
-      {
-        sender: userId,
-        receiver: req.user._id,
-        isRead: false
-      },
-      { isRead: true }
-    );
+        socket.to(receiverId).emit('newMessage', messageData);
+        socket.emit('messageConfirmed', messageData);
 
-    const total = await Message.countDocuments({
-      $or: [
-        { sender: req.user._id, receiver: userId },
-        { sender: userId, receiver: req.user._id }
-      ],
-      isDeleted: false
-    });
-
-    res.json({
-      messages: decryptedMessages,
-      pagination: {
-        current: page,
-        total: Math.ceil(total / limit),
-        hasPrev: page > 1
+        console.log(`Message sent from ${socket.user.username} to ${receiver.username}`);
+      } catch (error) {
+        console.error('Send message error:', error);
+        socket.emit('messageError', { error: 'Failed to send message' });
       }
     });
-  } catch (error) {
-    console.error('Get messages error:', error);
-    res.status(500).json({ message: 'Server error while fetching messages' });
-  }
-});
 
-// Get Unread Message Count
-router.get('/unread/:userId', authMiddleware, async (req, res) => {
-  try {
-    const { userId } = req.params;
-
-    const count = await Message.countDocuments({
-      sender: userId,
-      receiver: req.user._id,
-      isRead: false,
-      isDeleted: false
+    socket.on('typing', (data) => {
+      const { receiverId, isTyping } = data;
+      if (receiverId) {
+        socket.to(receiverId).emit('userTyping', {
+          userId: socket.userId,
+          username: socket.user.username,
+          isTyping: !!isTyping
+        });
+      }
     });
 
-    res.json({ count });
-  } catch (error) {
-    console.error('Get unread count error:', error);
-    res.status(500).json({ message: 'Server error while fetching unread count' });
-  }
-});
-
-// Delete Message
-router.delete('/:messageId', authMiddleware, async (req, res) => {
-  try {
-    const { messageId } = req.params;
-
-    const message = await Message.findOne({
-      _id: messageId,
-      sender: req.user._id
+    socket.on('markAsRead', async (data) => {
+      try {
+        const { messageIds } = data;
+        if (Array.isArray(messageIds)) {
+          await Message.updateMany(
+            {
+              _id: { $in: messageIds },
+              receiver: socket.userId
+            },
+            { isRead: true }
+          );
+        }
+      } catch (error) {
+        console.error('Mark as read error:', error);
+      }
     });
 
-    if (!message) {
-      return res.status(404).json({ message: 'Message not found or unauthorized' });
-    }
+    socket.on('disconnect', async () => {
+      console.log(`User disconnected: ${socket.user.username} (${socket.userId})`);
 
-    message.isDeleted = true;
-    await message.save();
+      connectedUsers.delete(socket.userId);
 
-    res.json({ message: 'Message deleted successfully' });
-  } catch (error) {
-    console.error('Delete message error:', error);
-    res.status(500).json({ message: 'Server error while deleting message' });
-  }
-});
+      const user = await User.findByIdAndUpdate(socket.userId, {
+        isOnline: false,
+        lastSeen: new Date()
+      }).populate('friends', '_id');
 
-export default router;
+      if (user) {
+        user.friends.forEach(friend => {
+          socket.to(friend._id.toString()).emit('userOffline', {
+            userId: socket.userId,
+            username: user.username
+          });
+        });
+      }
+    });
+  });
+
+  return io;
+}
+
+function getConnectedUsers() {
+  return connectedUsers;
+}
+
+export { initializeSocket, getConnectedUsers };
