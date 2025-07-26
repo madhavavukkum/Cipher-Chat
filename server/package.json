@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "End-to-End Encrypted Chat Application",
   "main": "server.js",
+   "type": "module",
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js"
