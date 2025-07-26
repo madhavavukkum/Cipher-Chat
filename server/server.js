@@ -2,8 +2,13 @@ import express, { json, urlencoded } from 'express';
 import { connect, connection } from 'mongoose';
 import cors from 'cors';
 import { createServer } from 'http';
-import { initializeSocket } from './utils/socket';
+import { initializeSocket } from './utils/socket.js';
 import dotenv from 'dotenv';
+import authRoutes from './routes/auth.js';
+import usersRoutes from './routes/users.js';
+import friendsRoutes from './routes/friends.js';
+import messagesRoutes from './routes/messages.js';
+
 dotenv.config();
 
 const app = express();
@@ -39,10 +44,10 @@ connect(process.env.MONGODB_URI)
   });
 
 // Routes
-app.use('/api/auth', require('./routes/auth'));
-app.use('/api/users', require('./routes/users'));
-app.use('/api/friends', require('./routes/friends'));
-app.use('/api/messages', require('./routes/messages'));
+app.use('/api/auth', authRoutes);
+app.use('/api/users', usersRoutes);
+app.use('/api/friends', friendsRoutes);
+app.use('/api/messages', messagesRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

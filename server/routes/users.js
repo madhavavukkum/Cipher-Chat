@@ -1,7 +1,8 @@
-const express = require('express');
-const User = require('../models/User');
-const Message = require('../models/Message');
-const authMiddleware = require('../middleware/auth');
+import express from 'express';
+import User from '../models/User.js';
+import Message from '../models/Message.js';
+import authMiddleware from '../middleware/auth.js';
+
 const router = express.Router();
 
 // Update Profile
@@ -115,4 +116,4 @@ router.get('/', authMiddleware, async (req, res) => {
   }
 });
 
-module.exports = router;
+export default router;

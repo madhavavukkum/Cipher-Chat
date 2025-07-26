@@ -1,13 +1,14 @@
-const express = require('express');
-const Message = require('../models/Message');
-const User = require('../models/User');
-const authMiddleware = require('../middleware/auth');
-const crypto = require('crypto');
+import express from 'express';
+import Message from '../models/Message.js';
+import User from '../models/User.js';
+import authMiddleware from '../middleware/auth.js';
+import crypto from 'crypto';
+
 const router = express.Router();
 
 // AES Encryption/Decryption functions
 const algorithm = 'aes-256-cbc';
-const secretKey = crypto.createHash('sha256').update(process.env.AES_SECRET).digest(); // Ensure 32 bytes key
+const secretKey = crypto.createHash('sha256').update(process.env.AES_SECRET).digest();
 
 function encrypt(text) {
   const iv = crypto.randomBytes(16);
@@ -158,4 +159,4 @@ router.delete('/:messageId', authMiddleware, async (req, res) => {
   }
 });
 
-module.exports = router;
+export default router;

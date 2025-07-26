@@ -1,13 +1,13 @@
-const socketIo = require('socket.io');
-const jwt = require('jsonwebtoken');
-const User = require('../models/User');
-const Message = require('../models/Message');
-const { encrypt, decrypt } = require('./encryption');
+import { Server } from 'socket.io';
+import jwt from 'jsonwebtoken';
+import User from '../models/User.js';
+import Message from '../models/Message.js';
+import { encrypt, decrypt } from './encryption.js';
 
 const connectedUsers = new Map();
 
 function initializeSocket(server) {
-  const io = socketIo(server, {
+  const io = new Server(server, {
     cors: {
       origin: "*",
       methods: ["GET", "POST"],
@@ -81,7 +81,7 @@ function initializeSocket(server) {
         }
 
         // Encrypt message
-        const encrypted = encrypt(message.trim());
+        const encrypted = encrypt(message.trim(), process.env.AES_SECRET);
 
         // Save message to database
         const newMessage = new Message({
@@ -179,7 +179,4 @@ function getConnectedUsers() {
   return connectedUsers;
 }
 
-module.exports = {
-  initializeSocket,
-  getConnectedUsers
-};
+export { initializeSocket, getConnectedUsers };
