@@ -27,7 +27,7 @@ function Dashboard({ user, setUser, socket }) {
     const fetchFriends = async () => {
       try {
         const response = await axiosInstance.get('/friends');
-        setFriends(response.data);
+        setFriends(response.data.map(friend => ({ ...friend, isOnline: false, unreadCount: 0 })));
       } catch (error) {
         toast.error('Failed to fetch friends');
       }
@@ -123,12 +123,14 @@ function Dashboard({ user, setUser, socket }) {
         requests={requests}
         onSelectFriend={handleSelectFriend}
         onShowProfile={() => setShowProfile(true)}
-        onShowNotifications={() => setShowNotifications(true)}
+        onShowNotifications={() => setShowNotifications(!showNotifications)}
         onSearch={handleSearch}
         searchResults={searchResults}
         onLogout={handleLogout}
         isSidebarOpen={isSidebarOpen}
         toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
+        setRequests={setRequests} // Pass setRequests
+        setFriends={setFriends}   // Pass setFriends
       />
       {selectedFriend ? (
         <ChatArea

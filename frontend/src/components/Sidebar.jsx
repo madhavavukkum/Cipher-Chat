@@ -16,6 +16,8 @@ function Sidebar({
   onLogout,
   isSidebarOpen,
   toggleSidebar,
+  setRequests, // Added prop
+  setFriends,  // Added prop
 }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearch, setShowSearch] = useState(false);
@@ -51,7 +53,7 @@ function Sidebar({
       setRequests((prev) => prev.filter((req) => req._id !== requestId));
       if (action === 'accept') {
         const newFriend = requests.find((req) => req._id === requestId).sender;
-        setFriends((prev) => [...prev, newFriend]);
+        setFriends((prev) => [...prev, { ...newFriend, isOnline: false, unreadCount: 0 }]);
       }
     } catch (error) {
       toast.error(error.response?.data?.message || `Failed to ${action} friend request`);
